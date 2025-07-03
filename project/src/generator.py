@@ -130,8 +130,13 @@ class InterfaceGenerator(ConstructGenerator):
         src += ind(1) + generator.generate_wire("valid_data_out", self.__buffer_qnt, "output")
         src += break_line()
 
-        for index in range(self.__buffer_qnt):
-            src += ind(1) + generator.generate_register(f"buffer{index}", int(parameters["destination_bitwidth"]), "")
+
+        if (self.__buffer_qnt):
+            src += ind(1) + generator.generate_register("buffer", int(parameters["destination_bitwidth"]), "")
+        else:
+            for index in range(self.__buffer_qnt):
+                src += ind(1) + generator.generate_register(f"buffer{index}", int(parameters["destination_bitwidth"]), "")
+
         if (self.src_bw % self.dest_bw != 0):
             src += ind(1) + generator.generate_register(f"buffer_aux", int(parameters["destination_bitwidth"]), "")
         src += break_line()
@@ -329,50 +334,46 @@ class InterfaceGenerator(ConstructGenerator):
             counter = 0
             available_input_bits = self.src_bw
             
-            src = f"if (state == 16'b{generator.to_bin(index, 16)} begin\n"
+            src = ind(3) + f"if (state == 16'b{generator.to_bin(index, 16)}) begin\n"
             while(valid_data == False):
-                src += ind(1) + f"if (counter == {counter_bw}'b{generator.to_bin(counter, counter_bw)}) begin\n"
+                src += ind(4) + f"if (counter == {counter_bw}'b{generator.to_bin(counter, counter_bw)}) begin\n"
 
                 if (buffer_aux_carry != 0):
-                    print(buffer_upper_bit,buffer_lower_bit)
-
                     buffer_lower_bit = buffer_lower_bit - buffer_aux_carry
                     
                     if (buffer_lower_bit < 0):
                         buffer_lower_bit = 0
 
                     if (self.src_bw + buffer_aux_carry > self.dest_bw):
-                        src += ind(2) + f"buffer[{buffer_upper_bit}:{buffer_lower_bit}] <= buffer_aux[{buffer_aux_carry - 1}:{0}], data_in[{data_in_upper_bit}:{self.src_bw - buffer_aux_carry}];\n"
-                        src += ind(2) + f"buffer_aux <= data_in[{self.src_bw - buffer_aux_carry - 1}:{0}];\n"
+                        src += ind(5) + f"buffer[{buffer_upper_bit}:{buffer_lower_bit}] <= buffer_aux[{buffer_aux_carry - 1}:{0}], data_in[{data_in_upper_bit}:{self.src_bw - buffer_aux_carry}];\n"
+                        src += ind(5) + f"buffer_aux <= data_in[{self.src_bw - buffer_aux_carry - 1}:{0}];\n"
                         buffer_aux_carry = self.src_bw - buffer_aux_carry
 
 
                     else:
-                        src += ind(2) + f"buffer[{buffer_upper_bit}:{buffer_lower_bit}] <= buffer_aux[{buffer_aux_carry - 1}:{0}], data_in;\n"
+                        src += ind(5) + f"buffer[{buffer_upper_bit}:{buffer_lower_bit}] <= buffer_aux[{buffer_aux_carry - 1}:{0}], data_in;\n"
                         buffer_aux_carry = 0
                 else:
-                    print(buffer_upper_bit,buffer_lower_bit)
-
                     if (buffer_lower_bit < 0):
                         buffer_lower_bit = 0
 
                     if (data_in_upper_bit == self.src_bw - 1 and data_in_lower_bit == 0):
-                        src += ind(2) + f"buffer[{buffer_upper_bit}:{buffer_lower_bit}] <= data_in;\n"
+                        src += ind(5) + f"buffer[{buffer_upper_bit}:{buffer_lower_bit}] <= data_in;\n"
                     else:
-                        src += ind(2) + f"buffer[{buffer_upper_bit}:{buffer_lower_bit}] <= data_in[{data_in_upper_bit}:{data_in_lower_bit}];\n"
+                        src += ind(5) + f"buffer[{buffer_upper_bit}:{buffer_lower_bit}] <= data_in[{data_in_upper_bit}:{data_in_lower_bit}];\n"
                         data_in_upper_bit = data_in_lower_bit - 1
-                        src += ind(2) + f"buffer_aux <= data_in[{data_in_upper_bit}:{0}];\n"
+                        src += ind(5) + f"buffer_aux <= data_in[{data_in_upper_bit}:{0}];\n"
                         buffer_aux_carry = data_in_upper_bit + 1
 
                 if (buffer_lower_bit <= 0):
                     state = state + 1
 
-                    src += ind(2) + "valid_data <= 1'b1;\n"
-                    src += ind(2) + f"counter <= {counter_bw}'b{generator.to_bin(0, counter_bw)};\n"
-                    src += ind(2) + f"state <= 16'b{generator.to_bin(state, 16)};\n"
+                    src += ind(5) + "valid_data <= 1'b1;\n"
+                    src += ind(5) + f"counter <= {counter_bw}'b{generator.to_bin(0, counter_bw)};\n"
+                    src += ind(5) + f"state <= 16'b{generator.to_bin(state, 16)};\n"
                     valid_data = True
                 else:
-                    src += ind(2) + "counter <= 1'b1;\n"
+                    src += ind(5) + "counter <= 1'b1;\n"
                     counter = counter + 1
 
                 available_input_bits = available_input_bits - (buffer_upper_bit - buffer_lower_bit + 1)  
@@ -381,8 +382,8 @@ class InterfaceGenerator(ConstructGenerator):
 
                 data_in_lower_bit = data_in_upper_bit - buffer_upper_bit
 
-                src += ind(1) + "end\n"
-            src += "end\n"
+                src += ind(4) + "end\n"
+            src += ind(3) + "end\n"
             states.append(src)
 
         states.pop()
@@ -417,12 +418,10 @@ class InterfaceGenerator(ConstructGenerator):
         always_src += ind(2) + "else if (valid_data_in) begin\n"
 
         if (self.src_bw >= self.dest_bw):
-            self.generate_buffer_assignment()
+            always_src += self.generate_buffer_assignment()
         else:
-            self.generate_buffer_assignment2()
-
-
-        always_src += self.generate_buffer_assignment()
+            always_src += self.generate_buffer_assignment2()
+            self.__counter_needed_bw = 16
         always_src = always_src.replace("ç",str(self.__counter_needed_bw))
         always_src += ind(2) + "end"
         src = src.replace("x", always_src)
