@@ -1,5 +1,6 @@
 import sys
 import math
+import re
 
 def ind(value):
     indentation = ""
@@ -114,7 +115,9 @@ class InterfaceGenerator(ConstructGenerator):
         src += ind(1) + "clk,\n"
         src += ind(1) + "rst,\n"
         src += ind(1) + "data_in,\n"
-        src += ind(1) + "data_out\n"
+        src += ind(1) + "data_out,\n"
+        src += ind(1) + "valid_data_in,\n"
+        src += ind(1) + "valid_data_out\n"
         src += ");"
 
 
@@ -123,12 +126,14 @@ class InterfaceGenerator(ConstructGenerator):
         src += ind(1) + generator.generate_wire("rst", 1, "input")
         src += ind(1) + generator.generate_wire("data_in", self.src_bw, "input")
         src += break_line()
-        src += ind(1) + generator.generate_wire("data_out", self.out_bw, "output")
+        src += ind(1) + generator.generate_wire("data_out", self.out_bw * self.__buffer_qnt, "output")
+        src += ind(1) + generator.generate_wire("valid_data_out", self.__buffer_qnt, "output")
         src += break_line()
 
         for index in range(self.__buffer_qnt):
             src += ind(1) + generator.generate_register(f"buffer{index}", int(parameters["destination_bitwidth"]), "")
-        src += ind(1) + generator.generate_register(f"buffer_aux", int(parameters["destination_bitwidth"]), "")
+        if (self.src_bw % self.dest_bw != 0):
+            src += ind(1) + generator.generate_register(f"buffer_aux", int(parameters["destination_bitwidth"]), "")
         src += break_line()
         src += ind(1) + generator.generate_register("valid_data", self.__buffer_qnt)
         src += ind(1) + "`"
@@ -301,6 +306,99 @@ class InterfaceGenerator(ConstructGenerator):
             src += ind(3) + "end\n" 
         return src
     
+    # This method assigns the buffer when the source is smaller than destination
+    def generate_buffer_assignment2(self):
+        states = []
+
+        buffer_aux_carry = 0
+
+        max_counter_value = math.ceil(self.dest_bw / self.src_bw)
+        counter_bw = self.__needed_bit_quantity(max_counter_value)
+
+        state = 0
+
+        for index in range(6):
+
+            data_in_upper_bit = self.src_bw - 1
+            data_in_lower_bit = 0
+            buffer_upper_bit = self.dest_bw - 1
+            buffer_lower_bit = self.dest_bw - self.src_bw
+
+
+            valid_data = False
+            counter = 0
+            available_input_bits = self.src_bw
+            
+            src = f"if (state == 16'b{generator.to_bin(index, 16)} begin\n"
+            while(valid_data == False):
+                src += ind(1) + f"if (counter == {counter_bw}'b{generator.to_bin(counter, counter_bw)}) begin\n"
+
+                if (buffer_aux_carry != 0):
+                    print(buffer_upper_bit,buffer_lower_bit)
+
+                    buffer_lower_bit = buffer_lower_bit - buffer_aux_carry
+                    
+                    if (buffer_lower_bit < 0):
+                        buffer_lower_bit = 0
+
+                    if (self.src_bw + buffer_aux_carry > self.dest_bw):
+                        src += ind(2) + f"buffer[{buffer_upper_bit}:{buffer_lower_bit}] <= buffer_aux[{buffer_aux_carry - 1}:{0}], data_in[{data_in_upper_bit}:{self.src_bw - buffer_aux_carry}];\n"
+                        src += ind(2) + f"buffer_aux <= data_in[{self.src_bw - buffer_aux_carry - 1}:{0}];\n"
+                        buffer_aux_carry = self.src_bw - buffer_aux_carry
+
+
+                    else:
+                        src += ind(2) + f"buffer[{buffer_upper_bit}:{buffer_lower_bit}] <= buffer_aux[{buffer_aux_carry - 1}:{0}], data_in;\n"
+                        buffer_aux_carry = 0
+                else:
+                    print(buffer_upper_bit,buffer_lower_bit)
+
+                    if (buffer_lower_bit < 0):
+                        buffer_lower_bit = 0
+
+                    if (data_in_upper_bit == self.src_bw - 1 and data_in_lower_bit == 0):
+                        src += ind(2) + f"buffer[{buffer_upper_bit}:{buffer_lower_bit}] <= data_in;\n"
+                    else:
+                        src += ind(2) + f"buffer[{buffer_upper_bit}:{buffer_lower_bit}] <= data_in[{data_in_upper_bit}:{data_in_lower_bit}];\n"
+                        data_in_upper_bit = data_in_lower_bit - 1
+                        src += ind(2) + f"buffer_aux <= data_in[{data_in_upper_bit}:{0}];\n"
+                        buffer_aux_carry = data_in_upper_bit + 1
+
+                if (buffer_lower_bit <= 0):
+                    state = state + 1
+
+                    src += ind(2) + "valid_data <= 1'b1;\n"
+                    src += ind(2) + f"counter <= {counter_bw}'b{generator.to_bin(0, counter_bw)};\n"
+                    src += ind(2) + f"state <= 16'b{generator.to_bin(state, 16)};\n"
+                    valid_data = True
+                else:
+                    src += ind(2) + "counter <= 1'b1;\n"
+                    counter = counter + 1
+
+                available_input_bits = available_input_bits - (buffer_upper_bit - buffer_lower_bit + 1)  
+                buffer_upper_bit = buffer_lower_bit - 1
+                buffer_lower_bit = available_input_bits
+
+                data_in_lower_bit = data_in_upper_bit - buffer_upper_bit
+
+                src += ind(1) + "end\n"
+            src += "end\n"
+            states.append(src)
+
+        states.pop()
+        src = ""
+
+        states[len(states) - 1] = re.sub(
+            pattern="(16'b[0|1]+)", 
+            repl="16'b0000000000000000", 
+            string=states[len(states) - 1]
+        )
+
+        for state in states:
+            src += state
+        return src
+
+
     def generate_always(self, edge):
         if (edge == "p"):
             src = ind(1) + f"always @(posedge clk) begin\nx\n{ind(1)}end\n"
@@ -309,17 +407,23 @@ class InterfaceGenerator(ConstructGenerator):
 
         always_src = ind(2) + f"if (rst) begin\n"
         for index in range(self.__buffer_qnt):
-            always_src += ind(3) + f"buffer{index} <= {self.dest_bw}'b{generator.to_bin(0, self.dest_bw)};\n"
+            always_src += ind(3) + f"buffer{index} <= {self.dest_bw}'b{generator.to_bin(0, 1)};\n"
         if (self.src_bw % self.dest_bw != 0):
-            always_src += ind(3) + f"buffer_aux <= {self.dest_bw}'b{generator.to_bin(0, self.dest_bw)};\n"
-        always_src += ind(3) + f"valid_data <= {self.__buffer_qnt}'b{generator.to_bin(0, self.__buffer_qnt)};\n"
+            always_src += ind(3) + f"buffer_aux <= {self.dest_bw}'b{generator.to_bin(0, 1)};\n"
+        always_src += ind(3) + f"valid_data <= {self.__buffer_qnt}'b{generator.to_bin(0, 1)};\n"
 
-        always_src += ind(3) + f"counter <= ç'b*;\n"
+        always_src += ind(3) + f"counter <= ç'b0;\n"
         always_src += ind(2) + "end\n"
-        always_src += ind(2) + "else begin\n"
+        always_src += ind(2) + "else if (valid_data_in) begin\n"
+
+        if (self.src_bw >= self.dest_bw):
+            self.generate_buffer_assignment()
+        else:
+            self.generate_buffer_assignment2()
+
+
         always_src += self.generate_buffer_assignment()
         always_src = always_src.replace("ç",str(self.__counter_needed_bw))
-        always_src = always_src.replace("*",generator.to_bin(0, self.__counter_needed_bw))
         always_src += ind(2) + "end"
         src = src.replace("x", always_src)
         return src
