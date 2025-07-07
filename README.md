@@ -11,6 +11,9 @@ For a given input bit width, the software calculates how many outputs with the s
 
 ![Interface Architecture Diagram](https://github.com/icaroVerilog/VeriLink/blob/main/images/architecture.png)
 
+When the circuit need more bits than can be feeded in each clock cycle, instead of memory underutilization, in this scneraio we a have a superutilization. To solve this problem the interface module logic is changed to fill the buffer with the data of multiple clock cycles
+
+![Interface Architecture Diagram2](https://github.com/icaroVerilog/verilink/blob/development/images/architecture2.png)
 
 ## Utilization
 Verilink requires three flags for its operation:
@@ -19,4 +22,5 @@ Verilink requires three flags for its operation:
 |----------------|-------------------------------|-----------------------------|
 |-s							 |specifies the number of bits to be received by the interface module        |Integer            |
 |-d          		 |specifies the number of bits to be sent to the destination modules            |Integer          |
+|-o          		 |specifies the number of output bits            |Integer          |
 |-e              |sets the activation edge of the module, with possible values being `p` (positive edge) and `n` (negative edge)|Character
