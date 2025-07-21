@@ -141,12 +141,12 @@ class InterfaceGenerator(ConstructGenerator):
         src += break_line()
         src += ind(1) + generator.generate_register("valid_data", self.__buffer_qnt)
         src += ind(1) + "`"
+        if (self.src_bw < self.dest_bw):
+            src += ind(1) + generator.generate_register("state", 16)
         src += break_line()
         src += self.generate_always("p")
         src = src.replace("`",generator.generate_register("counter", self.__counter_needed_bw))
 
-        if (self.src_bw < self.dest_bw):
-            src += ind(1) + generator.generate_register("state", 16)
 
         src += "endmodule"
         return src
@@ -344,6 +344,10 @@ class InterfaceGenerator(ConstructGenerator):
             src = ind(3) + f"if (state == 16'b{generator.to_bin(state, 16)}) begin\n"
             while(valid_data == False):
                 src += ind(4) + f"if (counter == {counter_bw}'b{generator.to_bin(counter, counter_bw)}) begin\n"
+                if (counter == 0):
+                    src += ind(5) + "valid_data <= 1'b0;\n"
+
+
                 if (buffer_aux_carry != 0):
                     buffer_lower_bit = buffer_lower_bit - buffer_aux_carry
                     
