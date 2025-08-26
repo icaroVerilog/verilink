@@ -3,6 +3,10 @@ import math
 import re
 
 
+sys.dont_write_bytecode = True
+
+
+
 def ind(value):
     indentation = ""
     for index in range(value):
@@ -12,31 +16,24 @@ def ind(value):
 def break_line():
     return "\n";
 
-class ParameterReader:
-    def __init__(self):
-        self.__parameters = {
-            "source_bitwidth": None, 
-            "destination_bitwidth": None,
-            "output_bitwidth": None,
-            "trigger_edge": "p"
-        }
+def replace_last_occurency(string, pattern, repl):
+    matches = list(re.finditer(pattern, string))
+    
+    if not matches:
+        return string
+    
+    last_match = matches[-1]
+    start = last_match.start()
+    end = last_match.end()
 
-    def read(self, parameters):
-        parameters.pop(0)
+    return string[:start] + repl + string[end:]
 
-        for index in range(len(parameters)):
-            if (parameters[index] == "-s" and parameters[index+1].isdigit()):
-                self.__parameters["source_bitwidth"] = parameters[index+1]
-            if (parameters[index] == "-d" and parameters[index+1].isdigit()):
-                self.__parameters["destination_bitwidth"] = parameters[index+1]
-            if (parameters[index] == "-o" and parameters[index+1].isdigit()):
-                self.__parameters["output_bitwidth"] = parameters[index+1]
-            if (parameters[index] == "-e"):
-                if (parameters[index+1] != "p" and parameters[index+1] != "n"):
-                    print("ERRO")
-                self.__parameters["trigger_edge"] = parameters[index+1]
+def is_positive_int(value):
+    print(value)
+    print(value.isdigit())
+    return value.isdigit() and int(value) > 0
 
-        return self.__parameters
+
 
 class ConstructGenerator:
     def generate_wire(self, name, width, cardinality=""):
@@ -81,6 +78,39 @@ class ConstructGenerator:
             raise ValueError(f"O valor {value} não pode ser representado em {num_bits} bits.")
         
         return bin_str
+
+
+class ParameterReader:
+    def __init__(self):
+        self.__parameters = {
+            "source_bitwidth": None, 
+            "destination_bitwidth": None,
+            "output_bitwidth": None,
+            "trigger_edge": "p"
+        }
+
+    def read(self, parameters):
+        parameters.pop(0)
+
+        eexceptions = []
+
+        try:
+            for index in range(len(parameters)):
+                if (parameters[index] == "-s" and is_positive_int(parameters[index+1])):
+                    self.__parameters["source_bitwidth"] = parameters[index+1]
+                if (parameters[index] == "-d" and is_positive_int(parameters[index+1])):
+                    self.__parameters["destination_bitwidth"] = parameters[index+1]
+                if (parameters[index] == "-o" and is_positive_int(parameters[index+1])):
+                    self.__parameters["output_bitwidth"] = parameters[index+1]
+                if (parameters[index] == "-e"):
+                    if (parameters[index+1] != "p" and parameters[index+1] != "n"):
+                        print("ERRO")
+                    self.__parameters["trigger_edge"] = parameters[index+1]
+        except ValueError:
+            pass
+        return self.__parameters
+
+
         
 class InterfaceGenerator(ConstructGenerator):
     def __init__(self, parameters):
@@ -141,12 +171,12 @@ class InterfaceGenerator(ConstructGenerator):
         src += break_line()
         src += ind(1) + generator.generate_register("valid_data", self.__buffer_qnt)
         src += ind(1) + "`"
+        if (self.src_bw < self.dest_bw):
+            src += ind(1) + generator.generate_register("state", 16)
         src += break_line()
         src += self.generate_always("p")
         src = src.replace("`",generator.generate_register("counter", self.__counter_needed_bw))
 
-        if (self.src_bw < self.dest_bw):
-            src += ind(1) + generator.generate_register("state", 16)
 
         src += "endmodule"
         return src
@@ -313,7 +343,7 @@ class InterfaceGenerator(ConstructGenerator):
 
             src += ind(3) + "end\n" 
         return src
-    
+
     # This method assigns the buffer when the source is smaller than destination
     def generate_buffer_assignment2(self):
         states = []
@@ -344,6 +374,10 @@ class InterfaceGenerator(ConstructGenerator):
             src = ind(3) + f"if (state == 16'b{generator.to_bin(state, 16)}) begin\n"
             while(valid_data == False):
                 src += ind(4) + f"if (counter == {counter_bw}'b{generator.to_bin(counter, counter_bw)}) begin\n"
+                if (counter == 0):
+                    src += ind(5) + "valid_data <= 1'b0;\n"
+
+
                 if (buffer_aux_carry != 0):
                     buffer_lower_bit = buffer_lower_bit - buffer_aux_carry
                     
@@ -411,11 +445,11 @@ class InterfaceGenerator(ConstructGenerator):
         states.pop()
         src = ""
 
-        states[len(states) - 1] = re.sub(
-            pattern="(16'b[0|1]+)", 
-            repl="16'b0000000000000000", 
-            string=states[len(states) - 1]
-        )
+        states[len(states) - 1] = replace_last_occurency(
+            states[len(states) - 1], 
+                r"(16'b[0|1]+)", 
+                "16'b0000000000000000"
+            )
 
         for state in states:
             src += state
